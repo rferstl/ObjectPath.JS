@@ -90,6 +90,8 @@ ObjectPath.prototype={
 				case "+":{
 					if (D) console.log("op "+op+" found; first is",first,"second is",second)
 					//if (D) console.log(typeFirst)
+					if (!second)
+						return +first;
 					if (typeFirst==='number' && typeSecond!=="number")
 						second=parseInt(second)
 					else if (Array.isArray(first)){
@@ -252,9 +254,13 @@ ObjectPath.prototype={
 										r.push(fst)
 								}
 								return r
+							} else if (typeof node.second==="object" && node.second.id === "*"){
+								//flatten one level
+								return [].concat.apply([], exe(node.first));
 							}
 							programmingError("left is array and right is not number")
-						} else if (typeFirst==="object"){
+						} else if (typeof first==="object"){
+							var second=exe(node.second), typeSecond=typeof second;
 							if (D) console.log("left is"+first+"right is",second)
 							if (node.second.id==="(name)" || typeSecond==="string"){
 								if (D) console.log("returning ",first,second,first[second])
@@ -283,7 +289,7 @@ ObjectPath.prototype={
 				case "{":
 				case "":{
 					throw {
-						error:"NotImplementedYet",
+						name:"NotImplementedYet",
 						message:op+" is not implemented yet!",
 						data:node
 					}
@@ -302,8 +308,20 @@ ObjectPath.prototype={
 						if (Array.isArray(first)){
 							var r=[]
 							var second=exe(node.second)
+							if (Array.isArray(second)) {
+								for (var i=0 ;i<first.length; i++){
+									var d={};
+									for (var j=0; j<second.length; j++)
+										if(first[i][second[j]])
+											d[second[j]]=first[i][second[j]];
+									if (Object.keys(d).length !== 0)
+										r.push(d);
+								}
+								if (D) console.log("returning",r)
+								return r
+							}
 							for (var i=0;i<first.length;i++){
-								if (first[i][second])
+								if (first[i] && first[i][second])
 								 	r.push(first[i][second])
 							}
 							if (D) console.log("returning",r)
@@ -367,14 +385,14 @@ ObjectPath.prototype={
 					}
 				}
 				throw {
-					"error":"WrongFunction",
+					"name":"WrongFunction",
 					"message":"Function "+op+" is not proper ObjectPath function.",
 					"data":node
 				}
 
 			}
 			throw {
-				"error":"WrongOperator",
+				"name":"WrongOperator",
 				"message":"Operator "+op+" is not proper ObjectPath operator.",
 				"data":node
 			}
