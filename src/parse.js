@@ -34,7 +34,7 @@ var makeTree=function() {
 		}
 		if (token_nr >= tokens.length) {
 			token = symbol_table["(end)"];
-			return;
+			return token;
 		}
 		t = tokens[token_nr];
 		token_nr += 1;
@@ -240,8 +240,13 @@ var makeTree=function() {
 	infix("*", 120); infix("/", 120)
 	infix("%", 120)
 	prefix("-", 130); prefix("+", 130);
-	symbol(".",150).led=pathLed
-	symbol("..",150).led=pathLed
+	infix(".",150)
+	infix("..",150)
+
+	symbol("*").nud = function () {
+		this.arity = "wildcard";
+		return this;
+	};
 
 	symbol("]")
 	infix("[", 150, function (left) {

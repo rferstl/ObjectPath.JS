@@ -69,7 +69,7 @@ String.prototype.tokens=function(D){
 				console.error(errString+" at char "+this.from+":"+this.to+"<br/>"+expression.substring(0,this.position[0])+"<b>"+expression.substring(this.position[0],this.position[1])+"</b>"+expression.substring(this.position[1],expression.lenght))
 			} catch(e){
 				throw {
-					"error":errString,
+					"name":"ParseError",
 					"message":errString
 				}
 			}
