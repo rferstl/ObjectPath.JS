@@ -61,6 +61,13 @@ ObjectPath.prototype={
 		return ret
 	},
 	execute:function(expr){
+		function isInt(n){
+			return Number(n) === n && n % 1 === 0;
+		}
+
+		function isFloat(n){
+			return n === Number(n) && n % 1 !== 0;
+		}
 		var self=this,
 				flatten=this.flatten,
 				simpleTypes=this.simpleTypes,
@@ -155,51 +162,49 @@ ObjectPath.prototype={
 				case "not in":{
 					if (D) console.log("op "+op+" found; doing",first,op,second)
 					var ret=null
-					if (typeSecond==="string")
+					if(second === null){
+						ret = false;
+					}else if (typeSecond==="string"){
 						ret=second.search(first.toString())>=0
-					else if (Array.isArray(second)){
+					}else if (Array.isArray(second)){
 						ret=second.indexOf(first)>=0
 					} else if (typeSecond==="object")
-						ret=second.hasOwnProperty(first)
+						ret=second != null && second.hasOwnProperty(first)
 					return op==="in"?ret:!ret
 				}
 				case "is":
 				case "is not":{
 					var ret=null
 					if (D) console.log("op '"+op+"' found; doing",first,op,second)
-					if (simpleTypes.indexOf(typeFirst)>=0){
+					if (isFloat(first)){
+						ret=Math.abs(first-second)<0.0000000000000001
+					}
+					else if (simpleTypes.indexOf(typeFirst)>=0){
 						if (D) console.log("doing simple type comparison:",first,"is",second," = ",(first==second))
 						ret=first==second
 					}
 					else if (typeFirst==="array" || typeFirst==="object"){
 						//TODO needs(!) better algorithm
 						if (D) console.log("doing JSON comparison: ",first," is ",second)
-						try{
-							ret=JSON.stringify(first)==JSON.stringify(second)
-							throw {
-								name:"comparison Error",
-								message: "JSONStringifyNotAvailable. Your web browser doesn't support JSON.stringify(). Vote for support at"
-							}
-						} catch(e){}
+						ret=JSON.stringify(first)==JSON.stringify(second)
 					}
 					return op==="is"?ret:!ret
-				}
-				case "(root)":{// self is $
-					if (D) console.log("op "+op+" found; returning with: ",self.data)
-					return self.data
-				}
-				case "(current)":{// self is @
-					if (D) console.log("op "+op+" found; returning with: ",self.current)
-					return self.current
-				}
-				case "(context)":{// self is @
-					if (D) console.log("op "+op+" found; returning with: ",self.context)
-					return self.context
 				}
 				case ":":{
 					return node
 				}
 				case "(name)":{
+					switch (node.value){
+						case "$":{
+							return self.data;
+						}
+						case "@":{
+							return self.current;
+						}
+						case "!":{
+							return self.context;
+						}
+					}
 					return node.value
 				}
 				case "[":{
@@ -219,11 +224,11 @@ ObjectPath.prototype={
 							return first
 						if (typeof first==="string" || Array.isArray(first)){
 							var second=exe(node.second),
-									typeSecond=typeof second
-							if (second && second.id===":") {
-							if (D) console.log("slice operator found")
-								//var [s,f]=[exe(second.first),exe(second.second)]
-								return first.slice(exe(second.first),exe(second.second))
+								typeSecond=typeof second
+							if (node.second && node.second.id===":") {
+								if (D) console.log("slice operator found")
+									//var [s,f]=[exe(second.first),exe(second.second)]
+									return first.slice(exe(second.first),exe(second.second))
 							}
 							if (D) console.log("left is",first,"right is",second)
 							if (typeSecond==="number"){
@@ -249,7 +254,7 @@ ObjectPath.prototype={
 								for (i in first){
 									var fst=first[i]
 									self.current=fst
-									o.first=fst
+									//o.first=fst
 									if (exe(o))
 										r.push(fst)
 								}
@@ -258,7 +263,7 @@ ObjectPath.prototype={
 								//flatten one level
 								return [].concat.apply([], exe(node.first));
 							}
-							programmingError("left is array and right is not number")
+							throw new Error("ExecutionError: left is array and right is not number")
 						} else if (typeof first==="object"){
 							var second=exe(node.second), typeSecond=typeof second;
 							if (D) console.log("left is"+first+"right is",second)
@@ -286,13 +291,11 @@ ObjectPath.prototype={
 					}
 					return null
 				}
-				case "{":
+				case "{":{
+					return {}
+				}
 				case "":{
-					throw {
-						name:"NotImplementedYet",
-						message:op+" is not implemented yet!",
-						data:node
-					}
+					throw new Error("NotImplementedYet: " + op + " is not implemented yet!")
 				}
 				case "..":{
 					first=flatten(exe(node.first))
@@ -382,20 +385,14 @@ ObjectPath.prototype={
 						case "min":{
 							return Math.min.apply(null, exe(node.second)[0])
 						}
+						case "sum":{
+							return exe(node.second)[0].reduce(function(a, b) { return a + b })
+						}
 					}
+					throw new Error("WrongFunction: Function "+ node.first +" is not proper ObjectPath function.")
 				}
-				throw {
-					"name":"WrongFunction",
-					"message":"Function "+op+" is not proper ObjectPath function.",
-					"data":node
-				}
-
 			}
-			throw {
-				"name":"WrongOperator",
-				"message":"Operator "+op+" is not proper ObjectPath operator.",
-				"data":node
-			}
+			new Error ("WrongOperator: Operator "+op+" is not proper ObjectPath operator.")
 		}
 		if (!expr) {
 			return expr

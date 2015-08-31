@@ -30,7 +30,9 @@ var makeTree=function() {
 		var a, o, t, v;
 		if (D) console.log("{fn:advance("+(typeof(id)!=='undefined'?id:"")+")")
 		if (id && token.id !== id) {
-			token.error("Expected '" + id + "', got '"+token.id+"'.");
+			var msg = "Expected '" + id + "', got '"+token.id+"'.";
+			console.log(msg);
+			throw new SyntaxError(msg)
 		}
 		if (token_nr >= tokens.length) {
 			token = symbol_table["(end)"];
@@ -49,12 +51,6 @@ var makeTree=function() {
 			if (!o){
 				o=symbol_table["(name)"]
 			}
-		} else if (a === "(root)") {
-			o=symbol_table["(root)"]
-		} else if (a === "(current)") {
-			o=symbol_table["(current)"]
-		} else if (a === "(context)") {
-			o=symbol_table["(context)"]
 		} else if (a === "op") {
 			if (D) console.log("operator",v,"found")
 			o = symbol_table[v];
@@ -73,7 +69,8 @@ var makeTree=function() {
 		token.value = v;
 		token.arity = a;
 		token.error = function(e){
-			console.error(e)
+			console.error(e);
+			throw new SyntaxError(e)
 		}
 		if (D) console.log("}fn:advance() returning token: ",token)
 		return token;
@@ -240,8 +237,8 @@ var makeTree=function() {
 	infix("*", 120); infix("/", 120)
 	infix("%", 120)
 	prefix("-", 130); prefix("+", 130);
-	infix(".",150)
-	infix("..",150)
+	infix(".", 150)
+	infix("..", 150)
 
 	symbol("*").nud = function () {
 		this.arity = "wildcard";
@@ -313,14 +310,10 @@ var makeTree=function() {
 
 	symbol("}");
 	symbol("{").nud=function () {
-		var a = [], key, v;
+		var a = [];
 		if (token.id !== "}") {
 			while (true) {
-				key = expression();
-				advance(":");
-				v = expression();
-				v.key = key;
-				a.push(v);
+				a.push(expression());
 				if (token.id !== ",") {
 					break;
 				}
@@ -336,10 +329,9 @@ var makeTree=function() {
 	return function (arg,conf) {
 		var D=this.D=conf && conf["debug"] || false
 		if (D) console.log("{fn:make_parse(",typeof(arg)!=='undefined'?arg:"",")")
-		if (typeof arg==="string")
-			tokens = arg.tokens(D);
-		else
-			tokens=arg
+		if (typeof arg !== "string")
+			return arg;
+		tokens = arg.tokens(D);
 		if (D) console.log("tokens are: ",tokens)
 		token_nr = 0;
 		advance();

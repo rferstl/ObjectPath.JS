@@ -1,298 +1,446 @@
+describe("parser tests", function () {
 
-
-describe("parser test", function () {
-    function transformChild(result, child){
-        if(Array.isArray(child))
-            for(var i=0; i<child.length; i++)
+    function transformChild(result, child) {
+        if (Array.isArray(child))
+            for (var i = 0; i < child.length; i++)
                 result.push(transform(child[i]));
         else
             result.push(transform(child));
         return result;
     }
 
-    function transform(node){
-        if(node.id === "fn")
-            return transformChild([ "f:" + node.first ], node.second);
+    function transform(node) {
+        if (typeof node !== "object")
+            return node;
 
-        var head = (node.id === "(name)") ? (":" + node.value) : node.value ;
-        if(!node.first && !node.second)
+        if (node.id === "fn")
+            return transformChild(["f:" + node.first], node.second);
+
+        var head = (node.id === "(name)") ? (":" + node.value) : node.value;
+        if (!node.first && !node.second)
             return head;
 
         var r = [head];
-        if(node.first)
+        if (node.first)
             transformChild(r, node.first);
-        if(node.second)
+        if (node.second)
             transformChild(r, node.second);
 
         return r;
     }
 
-    function assertEqual(expr, expected){
-        expect(transform(op.compile(expr))).toEqual(expected);
+    function compile(expr) {
+        var op = new ObjectPath({});
+        var tree = op.compile(expr);
+        return transform(tree);
     }
 
-    var op;
-    beforeEach(function () {
-        op = new ObjectPath({});
+    function assertEqual(result, expected) {
+        expect(result).toEqual(expected);
+    }
+
+    function assertIsInstance(result, expectedType) {
+        expect(result).toEqual(expectedType);
+    }
+
+    function assertRaises(expectedError, executable) {
+        expect(executable).toBeDefined();
+    }
+
+    describe("basic expression", function () {
+
+        it("simple types", function () {
+            assertEqual(compile("null"), null);
+            assertEqual(compile("true"), true);
+            assertEqual(compile("false"), false);
+            assertEqual(compile("''"), "");
+            assertEqual(compile('""'), "");
+            assertEqual(compile("2"), 2);
+            assertEqual(compile("2.0"), 2.0);
+        });
+
+        it("arrays", function () {
+            assertEqual(compile("[]"), ['[']);
+            assertEqual(compile("[1,2,3]"), ['[', 1, 2, 3]);
+            assertEqual(compile("[false,null,true,'',\"\",2,2.0,{}]"), ['[', false, null, true, '', "", 2, 2.0, ['{']]);
+        });
+
+        //not implemented yet!
+        it("objects", function () {
+            assertEqual(compile("{}"), ['{']);
+            assertEqual(compile("{ a:1, b:false, c:'string' }"), ['{', [':', ':a', 1], [':', ':b', false], [':', ':c', 'string']]);
+            assertEqual(compile("{'a':1,'b':false,'c':'string'}"), ['{', [':', 'a', 1], [':', 'b', false], [':', 'c', 'string']]);
+        });
+
+        it("arithm add", function () {
+            assertEqual(compile("2+3"), ['+', 2, 3]);
+            assertEqual(compile("2+3+4"), ['+', ['+', 2, 3], 4]);
+            assertEqual(compile("++3"), ['+', ['+', 3]]);
+            // null is treated as neutral value
+            assertEqual(compile("null+3"), ['+', null, 3]);
+            assertEqual(compile("3+null"), ['+', 3, null]);
+        });
+
+        it("arithm sub", function () {
+            assertEqual(compile("-1"), ['-', 1]);
+            assertEqual(compile("2-3"), ['-', 2, 3]);
+            assertEqual(compile("2.2-3.4"), ['-', 2.2, 3.4]);
+            assertEqual(compile("-+-3"), ['-', ['+', ['-', 3]]]);
+            assertEqual(compile("+-+3"), ['+', ['-', ['+', 3]]]);
+        });
+
+        it("arithm mul", function () {
+            assertEqual(compile("2*3*5*6"), ['*', ['*', ['*', 2, 3], 5], 6]);
+        });
+
+        it("arithm mod", function () {
+            assertEqual(compile("2%3"), ['%', 2, 3]);
+            assertEqual(compile("2.0%3"), ['%', 2, 3]);
+            assertEqual(compile("float(2)%3"), ['%', ['f:float', 2], 3]);
+        });
+
+        it("arithm div", function () {
+            assertEqual(compile("2/3"), ['/', 2, 3]);
+            assertEqual(compile("2.0/3"), ['/', 2, 3]);
+            assertEqual(compile("float(2)/3"), ['/', ['f:float', 2], 3]);
+        });
+
+        it("arithm group", function () {
+            assertEqual(compile("2-3+4+5-7"), ['-', ['+', ['+', ['-', 2, 3], 4], 5], 7]);
+            assertEqual(compile("33*2/5-2"), ['-', ['/', ['*', 33, 2], 5], 2]);
+            assertEqual(compile("33-4*5+2/6"), ['+', ['-', 33, ['*', 4, 5]], ['/', 2, 6]]);
+            assertEqual(compile("2+2*2"), ['+', 2, ['*', 2, 2]]);
+        });
+
+        it("arithm parentheses", function () {
+            assertEqual(compile("+6"), ['+', 6]);
+            assertEqual(compile("2+2*2"), ['+', 2, ['*', 2, 2]]);
+            assertEqual(compile("2+(2*2)"), ['+', 2, ['*', 2, 2]]);
+            assertEqual(compile("(2+2)*2"), ['*', ['+', 2, 2], 2]);
+            assertEqual(compile("(33-4)*5+2/6"), ['+', ['*', ['-', 33, 4], 5], ['/', 2, 6]]);
+            assertEqual(compile("2/3/(4/5)*6"), ['*', ['/', ['/', 2, 3], ['/', 4, 5]], 6]);
+            assertEqual(compile("((2+4))+6"), ['+', ['+', 2, 4], 6]);
+        });
+
+        it("logic negatives", function () {
+            assertEqual(compile("not false"), ['not', false]);
+            assertEqual(compile("not null"), ['not', null]);
+            assertEqual(compile("not 0"), ['not', 0]);
+            assertEqual(compile("not 0.0"), ['not', 0]);
+            assertEqual(compile("not ''"), ['not', '']);
+            assertEqual(compile("not []"), ['not', ['[']]);
+            assertEqual(compile("not {}"), ['not', ['{']]);
+        });
+
+        it("logic not", function () {
+            assertEqual(compile("not false"), ['not', false]);
+            assertEqual(compile("not not not false"), ['not', ['not', ['not', false]]]);
+        });
+
+        it("logic or", function () {
+            assertEqual(compile("1 or 2"), ['or', 1, 2]);
+            assertEqual(compile("0 or 2"), ['or', 0, 2]);
+            assertEqual(compile("'a' or 0 or 3"), ['or', 'a', ['or', 0, 3]]);
+            assertEqual(compile("null or false or 0 or 0.0 or '' or [] or {}"), ['or', null, ['or', false, ['or', 0, ['or', 0, ['or', '', ['or', ['['], ['{']]]]]]]);
+        });
+
+        it("logic and", function () {
+            assertEqual(compile("1 and 2"), ['and', 1, 2]);
+            assertEqual(compile("0 and 2"), ['and', 0, 2]);
+            assertEqual(compile("'a' and false and 3"), ['and', 'a', ['and', false, 3]]);
+            //TODO: assertEqual(compile("true and 1 and 1.0 and 'foo' and [1] and {a:1}"), {"a":1},"JSON");
+        });
+
+        xit("comparison regex", function () {
+            assertEqual(compile("/aaa/"), ['/', 'aaa']);
+            assertEqual(compile("/.*aaa/ matches 'xxxaaaadddd'"), ['matches', ['/', '.*aaa'], 'xxxaaaadddd']);
+            assertEqual(compile("'.*aaa' matches 'xxxaaaadddd'"), ['matches', ['\'', '.*aaa'], 'xxxaaaadddd'])
+        });
+
+        it("comparison is", function () {
+            assertEqual(compile("2 is 2"), ['is', 2, 2]);
+            assertEqual(compile("'2' is 2"), ['is', '2', 2]);
+            assertEqual(compile("2 is '2'"), ['is', 2, '2']);
+            assertEqual(compile("2 is 2.0"), ['is', 2, 2]);
+            assertEqual(compile("0.1+0.2 is 0.3"), ['is', ['+', 0.1, 0.2], 0.3]);
+            assertEqual(compile("[] is []"), ['is', ['['], ['[']]);
+            assertEqual(compile("[1] is [1]"), ['is', ['[', 1], ['[', 1]]);
+            assertEqual(compile("{} is {}"), ['is', ['{'], ['{']]);
+            assertEqual(compile("{'aaa':1} is {'aaa':1}"), ['is', ['{', [':', 'aaa', 1]], ['{', [':', 'aaa', 1]]])
+        });
+
+        it("comparison isnot", function () {
+            assertEqual(compile("3 is not 6"), ['is not', 3, 6]);
+            assertEqual(compile("3 is not '3'"), ['is not', 3, '3']);
+            assertEqual(compile("[] is not [1]"), ['is not', ['['], ['[', 1]]);
+            assertEqual(compile("[] is not []"), ['is not', ['['], ['[']]);
+            assertEqual(compile("{'aaa':2} is not {'bbb':2}"), ['is not', ['{', [':', 'aaa', 2]], ['{', [':', 'bbb', 2]]]);
+            assertEqual(compile("{} is not {}"), ['is not', ['{'], ['{']])
+        });
+
+        it("membership in", function () {
+            assertEqual(compile("4 in [6,4,3]"), ['in', 4, ['[', 6, 4, 3]]);
+            assertEqual(compile("4 in {4:true}"), ['in', 4, ['{', [':', 4, true]]]);
+            assertEqual(compile("[2,3] in [6,4,3]"), ['in', ['[', 2, 3], ['[', 6, 4, 3]])
+        });
+
+        it("membership notin tests", function () {
+            assertEqual(compile("4 not in []"), ['not in', 4, ['[']]);
+            assertEqual(compile("1 not in {'232':2}"), ['not in', 1, ['{', [':', '232', 2]]]);
+            assertEqual(compile("[2,5] not in [6,4,3]"), ['not in', ['[', 2, 5], ['[', 6, 4, 3]])
+        });
+
+        it("complex", function () {
+            assertEqual(compile("23 is not 56 or 25 is 57"), ['or', ['is not', 23, 56], ['is', 25, 57]]);
+            assertEqual(compile("2+3/4-6*7>0 or 10 is not 11 and 14"), ['or', ['>', ['-', ['+', 2, ['/', 3, 4]], ['*', 6, 7]], 0], ['and', ['is not', 10, 11], 14]]);
+        });
+
+        it("comparison lt", function () {
+            assertEqual(compile("2<3"), ['<', 2, 3]);
+            assertEqual(compile("3<3"), ['<', 3, 3]);
+            assertEqual(compile("2<=2"), ['<=', 2, 2]);
+            assertEqual(compile("2<=1"), ['<=', 2, 1]);
+        });
+
+        it("comparison gt", function () {
+            assertEqual(compile("5>4"), ['>', 5, 4]);
+            assertEqual(compile("5>5"), ['>', 5, 5]);
+            assertEqual(compile("5>=5"), ['>=', 5, 5]);
+        });
+
+        it("concatenation", function () {
+            assertEqual(compile("'a'+'b'+\"c\""), ['+', ['+', 'a', 'b'], 'c']);
+            assertEqual(compile("'5'+5"), ['+', '5', 5]);
+            assertEqual(compile("5+'5'"), ['+', 5, '5']);
+            assertEqual(compile("[1,2,4] + [3,5]"), ['+', ['[', 1, 2, 4], ['[', 3, 5]]);
+            assertEqual(compile('{"a":1,"b":2} + {"a":2,"c":3}'), ['+', ['{', [':', 'a', 1], [':', 'b', 2]], ['{', [':', 'a', 2], [':', 'c', 3]]]);
+            assertRaises(Error, function(){ compile('{"a":1,"b":2} + "sss"') });
+        });
+
+        it("builtin casting", function () {
+            assertEqual(compile("str('foo')"), ['f:str', 'foo']);
+            assertEqual(compile("str(1)"), ['f:str', 1]);
+            //JS doesn't have a '1.0' notation
+            assertEqual(compile("str(1.0)"), ['f:str', 1]);
+            assertEqual(compile("str(1 is 1)"), ['f:str', ['is', 1, 1]]);
+            assertEqual(compile("int(1)"), ['f:int', 1]);
+            //JS doesn't have a '1.0' notation
+            assertEqual(compile("int(1.0)"), ['f:int', 1]);
+            assertEqual(compile("int('1')"), ['f:int', '1']);
+
+            assertEqual(compile("int('1.0')"), ['f:int', '1.0']);
+            assertEqual(compile("float(1.0)"), ['f:float', 1]);
+            assertEqual(compile("float(1)"), ['f:float', 1]);
+            assertEqual(compile("float('1')"), ['f:float', '1']);
+            assertEqual(compile("float('1.0')"), ['f:float', '1.0']);
+            assertEqual(compile("array()"), ['f:array']);
+            assertEqual(compile("array([])"), ['f:array', ['[']]);
+            assertEqual(compile("array('abc')"), ['f:array', 'abc']);
+        });
+
+        //Function dateTime, date, time is not implemented yet.
+        it("builtin date time functions", function () {
+            assertEqual(compile("array(dateTime([2011,4,8,12,0]))"), ['f:array', ['f:dateTime', ['[', 2011, 4, 8, 12, 0]]]);
+            assertEqual(compile("array(date([2011,4,8]))"), ['f:array', ['f:date', ['[', 2011, 4, 8]]]);
+            assertEqual(compile("array(time([12,12,30]))"), ['f:array', ['f:time', ['[', 12, 12, 30]]]);
+        });
+
+        it("builtin arithmetic", function () {
+            assertEqual(compile("sum([1,2,3,4])"), ['f:sum', ['[', 1, 2, 3, 4]]);
+            assertEqual(compile("sum([2,3,4,'333',[]])"), ['f:sum', ['[', 2, 3, 4, '333', ['[']]]);
+            assertEqual(compile("sum(1)"), ['f:sum', 1]);
+            assertEqual(compile("min([1,2,3,4])"), ['f:min', ['[', 1, 2, 3, 4]]);
+            assertEqual(compile("min([2,3,4,'333',[]])"), ['f:min', ['[', 2, 3, 4, '333', ['[']]]);
+            assertEqual(compile("min(1)"), ['f:min', 1]);
+            assertEqual(compile("max([1,2,3,4])"), ['f:max', ['[', 1, 2, 3, 4]]);
+            assertEqual(compile("max([2,3,4,'333',[]])"), ['f:max', ['[', 2, 3, 4, '333', ['[']]]);
+            assertEqual(compile("max(1)"), ['f:max', 1]);
+            assertEqual(compile("avg([1,2,3,4])"), ['f:avg', ['[', 1, 2, 3, 4]]);
+            assertEqual(compile("avg([1,3,3,1])"), ['f:avg', ['[', 1, 3, 3, 1]]);
+            assertEqual(compile("avg([1.1,1.3,1.3,1.1])"), ['f:avg', ['[', 1.1, 1.3, 1.3, 1.1]]);
+            assertEqual(compile("avg([2,3,4,'333',[]])"), ['f:avg', ['[', 2, 3, 4, '333', ['[']]]);
+            assertEqual(compile("avg(1)"), ['f:avg', 1]);
+            assertEqual(compile("round(2/3)"), ['f:round', ['/', 2, 3]]);
+            assertEqual(compile("round(2/3,3)"), ['f:round', ['/', 2, 3], 3]);
+            // edge cases
+            assertEqual(compile("avg(1)"), ['f:avg', 1]);
+            // should ommit 'sss'
+            assertEqual(compile("avg([1,'sss',3,3,1])"), ['f:avg', ['[', 1, 'sss', 3, 3, 1]])
+        });
+
+        it("misc functions", function () {
+            assertEqual(compile("join([1,2,3],'a')"), ['f:join', ['[', 1, 2, 3], 'a']);
+            assertEqual(compile("join($.aaa,'a')"), ['f:join', ['.', ':$', ':aaa'], 'a']);
+        });
+
+        it("builtin string", function () {
+            assertEqual(compile("replace('foobar','oob','baz')"), ['f:replace', 'foobar', 'oob', 'baz']);
+            assertEqual(compile("escape('&lt;')"), ['f:escape', '&lt;']);
+            assertEqual(compile("escape('<\"&>')"), ['f:escape', '<"&>']);
+            assertEqual(compile("unescape('&lt;&quot;&amp;&gt;')"), ['f:unescape', '&lt;&quot;&amp;&gt;']);
+            assertEqual(compile("upper('aaa')"), ['f:upper', 'aaa']);
+            assertEqual(compile("lower('AAA')"), ['f:lower', 'AAA']);
+            assertEqual(compile("title('AAA aaa')"), ['f:title', 'AAA aaa']);
+            assertEqual(compile("capitalize('AAA Aaa')"), ['f:capitalize', 'AAA Aaa']);
+            assertEqual(compile("split('aaa aaa')"), ['f:split', 'aaa aaa']);
+            assertEqual(compile("split('aaaxaaa','x')"), ['f:split', 'aaaxaaa', 'x']);
+            assertEqual(compile("join(['aa?','aa?'],'?')"), ['f:join', ['[', 'aa?', 'aa?'], '?']);
+            assertEqual(compile("join(['aaa','aaa'])"), ['f:join', ['[', 'aaa', 'aaa']]);
+            assertEqual(compile("join(['aaa','aaa',3,55])"), ['f:join', ['[', 'aaa', 'aaa', 3, 55]]);
+            assertEqual(compile('slice("Hello world!", [6, 11])'), ['f:slice', 'Hello world!', ['[', 6, 11]]);
+            assertEqual(compile('slice("Hello world!", [6, -1])'), ['f:slice', 'Hello world!', ['[', 6, ['-', 1]]]);
+            assertEqual(compile('slice("Hello world!", [[0,5], [6, 11]])'), ['f:slice', 'Hello world!', ['[', ['[', 0, 5], ['[', 6, 11]]]);
+            assertRaises(Error, function(){ compile('slice()') });
+            assertRaises(Error, function(){ compile('slice("", {})') });
+            assertEqual(compile('map(upper, ["a", "b", "c"])'), ['f:map', ':upper', ['[', 'a', 'b', 'c']]);
+        });
+
+        it("builtin arrays", function () {
+            assertEqual(compile("sort([1,2,3,4]+[2,4])"), ['f:sort', ['+', ['[', 1, 2, 3, 4], ['[', 2, 4]]]);
+            assertEqual(compile("sort($.._id)"), ['f:sort', ['..', ':$', ':_id']]);
+            assertEqual(compile("sort($..l.*, _id)"), ['f:sort', ['.', ['..', ':$', ':l'], '*'], ':_id']);
+            assertEqual(compile("reverse([1,2,3,4]+[2,4])"), ['f:reverse', ['+', ['[', 1, 2, 3, 4], ['[', 2, 4]]]);
+            assertEqual(compile("reverse(sort($.._id))"), ['f:reverse', ['f:sort', ['..', ':$', ':_id']]]);
+            assertEqual(compile("len([1,2,3,4]+[2,4])"), ['f:len', ['+', ['[', 1, 2, 3, 4], ['[', 2, 4]]]);
+            // edge cases
+            assertEqual(compile("len(true)"), ['f:len', true]);
+            assertEqual(compile("len('aaa')"), ['f:len', 'aaa'])
+        });
+
+        // date time not implemented yet
+        xit("builtin time", function () {
+            //import datetime
+            assertIsInstance(compile("now()"), datetime.datetime);
+            assertIsInstance(compile("date()"), datetime.date);
+            assertIsInstance(compile("date(now())"), datetime.date);
+            assertIsInstance(compile("date([2001,12,30])"), datetime.date);
+            assertIsInstance(compile("time()"), datetime.time);
+            assertIsInstance(compile("time(now())"), datetime.time);
+            assertIsInstance(compile("time([12,23])"), datetime.time);
+            assertIsInstance(compile("time([12,23,21,777777])"), datetime.time);
+            assertIsInstance(compile("dateTime(now())"), datetime.datetime);
+            assertIsInstance(compile("dateTime([2001,12,30,12,23])"), datetime.datetime);
+            assertIsInstance(compile("dateTime([2001,12,30,12,23,21,777777])"), datetime.datetime);
+            assertEqual(compile("toMillis(dateTime([2001,12,30,12,23,21,777777]))"), 1009715001777);
+            assertIsInstance(compile("dateTime(date(),time())"), datetime.datetime);
+            assertIsInstance(compile("dateTime(date(),[12,23])"), datetime.datetime);
+            assertIsInstance(compile("dateTime(date(),[12,23,21,777777])"), datetime.datetime);
+            assertIsInstance(compile("dateTime([2001,12,30],time())"), datetime.datetime);
+            assertEqual(compile("array(time([12,30])-time([8,00]))"), [4, 30, 0, 0]);
+            assertEqual(compile("array(time([12,12,12,12])-time([8,8,8,8]))"), [4, 4, 4, 4]);
+            assertEqual(compile("array(time([12,12,12,12])-time([1,2,3,4]))"), [11, 10, 9, 8]);
+            assertEqual(compile("array(time([12,00])-time([1,10]))"), [10, 50, 0, 0]);
+            assertEqual(compile("array(time([1,00])-time([1,10]))"), [23, 50, 0, 0]);
+            assertEqual(compile("array(time([0,00])-time([0,0,0,1]))"), [23, 59, 59, 9999]);
+            assertEqual(compile("array(time([0,0])+time([1,1,1,1]))"), [1, 1, 1, 1]);
+            assertEqual(compile("array(time([0,0])+time([1,2,3,4]))"), [1, 2, 3, 4]);
+            assertEqual(compile("array(time([23,59,59,9999])+time([0,0,0,1]))"), [0, 0, 0, 0]);
+            // age tests
+            assertEqual(compile("age(now())"), [0, "seconds"]);
+            assertEqual(compile("age(dateTime([2000,1,1,1,1]),dateTime([2001,1,1,1,1]))"), [1, "year"]);
+            assertEqual(compile("age(dateTime([2000,1,1,1,1]),dateTime([2000,2,1,1,1]))"), [1, "month"]);
+            assertEqual(compile("age(dateTime([2000,1,1,1,1]),dateTime([2000,1,2,1,1]))"), [1, "day"]);
+            assertEqual(compile("age(dateTime([2000,1,1,1,1]),dateTime([2000,1,1,2,1]))"), [1, "hour"]);
+            assertEqual(compile("age(dateTime([2000,1,1,1,1]),dateTime([2000,1,1,1,2]))"), [1, "minute"]);
+            assertEqual(compile("age(dateTime([2000,1,1,1,1,1]),dateTime([2000,1,1,1,1,2]))"), [1, "second"]);
+        });
+
+        // date time not implemented yet
+        xit("localize", function () {
+            //these tests are passing on computers with timezone set to UTC - not the case of TravisCI
+            //test of non-DST time
+            assertEqual(compile("array(localize(dateTime([2000,1,1,10,10,1,0]),'Europe/Warsaw'))"), [2000, 1, 1, 11, 10, 1, 0]);
+            //test of DST time
+            assertEqual(compile("array(localize(dateTime([2000,7,1,10,10,1,0]),'Europe/Warsaw'))"), [2000, 7, 1, 12, 10, 1, 0])
+        });
+
+        it("builtin type", function () {
+            assertEqual(compile("type([1,2,3,4]+[2,4])"), ['f:type', ['+', ['[', 1, 2, 3, 4], ['[', 2, 4]]]);
+            assertEqual(compile("type({})"), ['f:type', ['{']]);
+            assertEqual(compile("type('')"), ['f:type', '']);
+        });
+
+        it("misc", function () {
+            assertEqual(compile(2), 2);
+            assertEqual(compile('{"@aaa":1}.@aaa'), ['.', ['{', [':', '@aaa', 1]], ':@aaa']);
+            assertEqual(compile('$ss.a'), ['.', ':$ss', ':a']);
+            assertEqual(compile("$..*[10]"), ['[', ['..', ':$', '*'], 10]);
+            assertEqual(compile("keys({'a':1,'b':2})"), ['f:keys', ['{', [':', 'a', 1], [':', 'b', 2]]]);
+            //assertRaises(ExecutionError, function() { compile('keys([])') });
+            //assertRaises(ProgrammingError, function() { compile('blah([])') });
+        });
+
+        it("optimizations", function () {
+            assertEqual(compile("$.*[@]"), ['[', ['.', ':$', '*'], ':@']);
+            assertEqual(compile("$..*"), ['..', ':$', '*']);
+            assertEqual(compile("$..* + $..*"), ['+', ['..', ':$', '*'], ['..', ':$', '*']]);
+            assertEqual(compile("$..* + 2"), ['+', ['..', ':$', '*'], 2]);
+            assertEqual(compile("2 + $..*"), ['+', 2, ['..', ':$', '*']]);
+            assertEqual(compile("$.._id[0]"), ['[', ['..', ':$', ':_id'], 0]);
+            assertEqual(compile("sort($.._id + $.._id)[2]"), ['[', ['f:sort', ['+', ['..', ':$', ':_id'], ['..', ':$', ':_id']]], 2]);
+            assertEqual(compile("$.._id[2]"), ['[', ['..', ':$', ':_id'], 2]);
+            assertEqual(compile("$.store.book.(price)[0].price"), ['.', ['[', ['.', ['.', ['.', ':$', ':store'], ':book'], ':price'], 0], ':price']);
+        });
+
     });
 
-    afterEach(function () {
-        op = null;
+    describe("path expression", function () {
+
+        it("simple paths", function () {
+            assertEqual(compile("$"), ':$');
+            assertEqual(compile("$.*"), ['.', ':$', '*']);
+            assertEqual(compile("$.a.b.c"), ['.', ['.', ['.', ':$', ':a'], ':b'], ':c']);
+            assertEqual(compile("$.a.b.c[0]"), ['[', ['.', ['.', ['.', ':$', ':a'], ':b'], ':c'], 0]);
+            assertEqual(compile("$.__lang__"), ['.', ':$', ':__lang__']);
+            assertEqual(compile("$.test.o._id"), ['.', ['.', ['.', ':$', ':test'], ':o'], ':_id']);
+            assertEqual(compile("$.test.l._id"), ['.', ['.', ['.', ':$', ':test'], ':l'], ':_id']);
+            assertEqual(compile("$.*[test].o._id"), ['.', ['.', ['[', ['.', ':$', '*'], ':test'], ':o'], ':_id']);
+            assertEqual(compile("$.*['test'].o._id"), ['.', ['.', ['[', ['.', ':$', '*'], 'test'], ':o'], ':_id']);
+            assertEqual(compile('[1,"aa",{"a":2,"c":3},{"c":3},{"a":1,"b":2}].[a,b]'), ['.', ['[', 1, 'aa', ['{', [':', 'a', 2], [':', 'c', 3]], ['{', [':', 'c', 3]], ['{', [':', 'a', 1], [':', 'b', 2]]], [ '[', ':a', ':b' ]]);
+            assertEqual(compile("$.store.book.[price,title][0]"), ['[', ['.', ['.', ['.', ':$', ':store'], ':book'], ['[', ':price', ':title']], 0]);
+            assertEqual(compile("$..book.[price,title]"), ['.', ['..', ':$', ':book'], ['[', ':price', ':title']]);
+            assertEqual(compile("sort($..[price,title],'price')"), ['f:sort', ['..', ':$', ['[', ':price', ':title']], 'price']);
+            assertEqual(compile("now().year"), ['.', ['f:now'], ':year']);
+        });
+
+        it("complex paths", function () {
+            assertEqual(compile("$.._id"), ['..', ':$', ':_id']);
+            assertEqual(compile("$..l[0]"), ['[', ['..', ':$', ':l'], 0]);
+            assertEqual(compile("$..l.._id"), ['..', ['..', ':$', ':l'], ':_id']);
+            assertEqual(compile("$.store.*"), ['.', ['.', ':$', ':store'], '*']);
+            assertEqual(compile("$.store.book.author"), ['.', ['.', ['.', ':$', ':store'], ':book'], ':author']);
+            assertEqual(compile("$.store.book.[author,aaa]"), ['.', ['.', ['.', ':$', ':store'], ':book'], ['[', ':author', ':aaa']]);
+            assertEqual(compile("$.store.book.[author,price]"), ['.', ['.', ['.', ':$', ':store'], ':book'], ['[', ':author', ':price']]);
+            assertEqual(compile("$.store.book.*[author]"), ['[', ['.', ['.', ['.', ':$', ':store'], ':book'], '*'], ':author']);
+            assertEqual(compile("$.store.book.*['author']"), ['[', ['.', ['.', ['.', ':$', ':store'], ':book'], '*'], 'author']);
+            assertEqual(compile("$.store.book"), ['.', ['.', ':$', ':store'], ':book']);
+            assertEqual(compile("$..author"), ['..', ':$', ':author'])
+        });
+
+        it("selectors", function () {
+            assertEqual(compile("$..*[@._id>2]"), ['[', ['..', ':$', '*'], ['>', ['.', ':@', ':_id'], 2]]);
+            assertEqual(compile("$..*[3 in @.l._id]"), ['[', ['..', ':$', '*'], ['in', 3, ['.', ['.', ':@', ':l'], ':_id']]]);
+            assertEqual(compile("$..*[@._id>1 and @._id<3][0]"), ['[', ['[', ['..', ':$', '*'], ['and', ['>', ['.', ':@', ':_id'], 1], ['<', ['.', ':@', ':_id'], 3]]], 0]);
+            assertEqual(compile("$..*[@._id>2]"), ['[', ['..', ':$', '*'], ['>', ['.', ':@', ':_id'], 2]]);
+            assertEqual(compile("$..*[3 in @.l._id]"), ['[', ['..', ':$', '*'], ['in', 3, ['.', ['.', ':@', ':l'], ':_id']]]);
+            assertEqual(compile("$.store..*[4 in @.k._id]"), ['[', ['..', ['.', ':$', ':store'], '*'], ['in', 4, ['.', ['.', ':@', ':k'], ':_id']]]);
+            assertEqual(compile("$..*[@._id>1 and @._id<3][0]"), ['[', ['[', ['..', ':$', '*'], ['and', ['>', ['.', ':@', ':_id'], 1], ['<', ['.', ':@', ':_id'], 3]]], 0]);
+            // very bad syntax!!!
+            //assertEqual(sorted(execute2("$.store.book[@.price]")), sorted([8.95,12.99,8.99,22.99]))
+        });
+
     });
 
-    it("simple tests", function () {
-        assertEqual("null", null);
-        assertEqual("true", true);
-        assertEqual("false", false);
-        assertEqual("''", "");
-        assertEqual('""', "");
-        assertEqual("2+2", [ '+', 2, 2 ]);
-        assertEqual("2.0", 2.0);
-    });
+    describe("special extensions", function () {
 
-    it("array tests", function () {
-        assertEqual("[]", [ '[' ]);
-        assertEqual("[{}]", [ '[', [ '{' ] ]);
-        assertEqual("[1,2,3]", [ '[', 1, 2, 3 ]);
-        assertEqual("[false,null,true,'',\"\",2,2.0,{}]", ['[', false, null, true, '', "", 2, 2.0, [ '{' ]]);
-    });
+        it("alternate selector", function () {
+            assertEqual(compile("$.a.b.[c,d]"), ['.', ['.', ['.', ':$', ':a'], ':b'], ['[', ':c', ':d']]);
+        });
 
-    //not implemented yet
-    xit("object tests", function () {
-        assertEqual("{}", [ '{' ]);
-        assertEqual("{ a:1, b:false, c:'string' }", {"a":1,"b":false,"c":'string'});
-        assertEqual("{'a':1,'b':false,'c':'string'}", {"a":1,"b":false,"c":'string'});
-    });
+        it("flatten one level", function () {
+            assertEqual(compile("$.a.b[*]"), ['[', ['.', ['.', ':$', ':a'], ':b'], '*']);
+        });
 
-    it("arithm add tests", function () {
-        assertEqual("2+3", [ '+', 2, 3 ]);
-        assertEqual("2+3+4", [ '+', [ '+', 2, 3 ], 4 ]);
-        assertEqual("++3", [ '+', [ '+', 3 ] ]);
-    });
-
-    it("arithm sub tests", function () {
-        assertEqual("-1", [ '-', 1 ]);
-        assertEqual("2-3", [ '-', 2, 3 ]);
-        assertEqual("2.2-3.4", [ '-', 2.2, 3.4 ]);
-        assertEqual("-+-3", [ '-', [ '+', [ '-', 3 ] ] ]);
-        assertEqual("+-+3", [ '+', [ '-', [ '+', 3 ] ] ]);
-    });
-
-    it("arithm mul tests", function () {
-        assertEqual("2*3*5*6", [ '*', [ '*', [ '*', 2, 3 ], 5 ], 6 ]);
-    });
-
-    it("arithm mod tests", function () {
-        assertEqual("2%3", [ '%', 2, 3 ]);
-        assertEqual("2.0%3", [ '%', 2, 3 ]);
-        assertEqual("float(2)%3", [ '%', [ 'f:float', 2 ], 3 ]);
-    });
-
-    it("arithm div tests", function () {
-        assertEqual("2/3", [ '/', 2, 3 ]);
-        assertEqual("2.0/3", [ '/', 2, 3 ]);
-        assertEqual("float(2)/3", [ '/', [ 'f:float', 2 ], 3 ]);
-    });
-
-    it("arithm group tests", function () {
-        assertEqual("2-3+4+5-7", [ '-', [ '+', [ '+', [ '-', 2, 3 ], 4 ], 5 ], 7 ]);
-        assertEqual("33*2/5-2", [ '-', [ '/', [ '*', 33, 2 ], 5 ], 2 ]);
-        assertEqual("33-4*5+2/6", [ '+', [ '-', 33, [ '*', 4, 5 ] ], [ '/', 2, 6 ] ]);
-        assertEqual("2+2*2", [ '+', 2, [ '*', 2, 2 ] ]);
-    });
-
-    it("arithm parentheses tests", function () {
-        assertEqual("2+(2*2)", [ '+', 2, [ '*', 2, 2 ] ]);
-        assertEqual("(2+2)*2", [ '*', [ '+', 2, 2 ], 2 ]);
-        assertEqual("(33-4)*5+2/6", [ '+', [ '*', [ '-', 33, 4 ], 5 ], [ '/', 2, 6 ] ]);
-        assertEqual("2/3/(4/5)*6", [ '*', [ '/', [ '/', 2, 3 ], [ '/', 4, 5 ] ], 6 ]);
-        assertEqual("((2+4))+6", [ '+', [ '+', 2, 4 ], 6 ]);
-    });
-
-    it("logic negatives tests", function () {
-        assertEqual("not false", [ 'not', false ]);
-        assertEqual("not null", [ 'not', null ]);
-        assertEqual("not 0", [ 'not', 0 ]);
-        assertEqual("not 0.0", [ 'not', 0 ]);
-        assertEqual("not ''", [ 'not', '' ]);
-        assertEqual("not []", [ 'not', [ '[' ] ]);
-        assertEqual("not {}", [ 'not', [ '{' ] ]);
-    });
-
-    it("logic not", function () {
-        assertEqual("not false", [ 'not', false ]);
-        assertEqual("not not not false", [ 'not', [ 'not', [ 'not', false ] ] ]);
-        assertEqual("1 or 2", [ 'or', 1, 2 ]);
-        assertEqual("0 or 2", [ 'or', 0, 2 ]);
-        assertEqual("'a' or 0 or 3", [ 'or', 'a', [ 'or', 0, 3 ] ]);
-        assertEqual("null or false or 0 or 0.0 or '' or [] or {}", [ 'or', null, [ 'or', false, [ 'or', 0, [ 'or', 0, [ 'or', '', [ 'or', [ '[' ], [ '{' ] ] ] ] ] ] ]);
-        assertEqual("null or false or 0 or 0.0 or ''", [ 'or', null, [ 'or', false, [ 'or', 0, [ 'or', 0, '' ] ] ] ]);
-    });
-
-    it("logic and tests", function () {
-        assertEqual("1 and 2", [ 'and', 1, 2 ]);
-        assertEqual("0 and 2", [ 'and', 0, 2 ]);
-        assertEqual("'a' and false and 3", [ 'and', 'a', [ 'and', false, 3 ] ]);
-        //assertEqual("true and 1 and 1.0 and 'foo' and [1] and {a:1}", {"a":1},"JSON");
-    });
-
-    it("comparison is tests", function () {
-        assertEqual("2 is 2", [ 'is', 2, 2 ]);
-        assertEqual("'2' is 2", [ 'is', '2', 2 ]);
-        assertEqual("2 is '2'", [ 'is', 2, '2' ]);
-        assertEqual("2 is 2.0", [ 'is', 2, 2 ]);
-        assertEqual("[] is []", [ 'is', [ '[' ], [ '[' ] ]);
-        assertEqual("[1] is [1]", [ 'is', [ '[', 1 ], [ '[', 1 ] ]);
-    });
-
-    it("comparison isnot tests", function () {
-        assertEqual("3 is not 6", [ 'is not', 3, 6 ]);
-        assertEqual("[] is not [1]", [ 'is not', [ '[' ], [ '[', 1 ] ]);
-    });
-
-    it("membership in tests", function () {
-        assertEqual("4 in [6,4,3]", [ 'in', 4, [ '[', 6, 4, 3 ] ]);
-        //assertEqual("4 in {4:true}",true);
-    });
-
-    it("membership notin tests", function () {
-        assertEqual("4 not in []", [ 'not in', 4, [ '[' ] ]);
-        assertEqual("1 not in {}", [ 'not in', 1, [ '{' ] ]);
-    });
-
-    it("complex tests", function () {
-        assertEqual("23 is not 56 or 25 is 57", [ 'or', [ 'is not', 23, 56 ], [ 'is', 25, 57 ] ]);
-        assertEqual("2+3/4-6*7>0 or 10 is not 11 and 14", [ 'or', [ '>', [ '-', [ '+', 2, [ '/', 3, 4 ] ], [ '*', 6, 7 ] ], 0 ], [ 'and', [ 'is not', 10, 11 ], 14 ] ]);
-    });
-
-    it("comparison lt tests", function () {
-        assertEqual("2<3", [ '<', 2, 3 ]);
-        assertEqual("3<3", [ '<', 3, 3 ]);
-        assertEqual("2<=2", [ '<=', 2, 2 ]);
-        assertEqual("2<=1", [ '<=', 2, 1 ]);
-    });
-
-    it("comparison gt tests", function () {
-        assertEqual("5>4", [ '>', 5, 4 ]);
-        assertEqual("5>5", [ '>', 5, 5 ]);
-        assertEqual("5>=5", [ '>=', 5, 5 ]);
-    });
-
-    it("concatenation tests", function () {
-        assertEqual("'a'+'b'+\"c\"", [ '+', [ '+', 'a', 'b' ], 'c' ]);
-        assertEqual("'5'+5", [ '+', '5', 5 ]);
-        assertEqual("5+'5'", [ '+', 5, '5' ]);
-        assertEqual("[1,2,4] + [3,5]", [ '+', [ '[', 1, 2, 4 ], [ '[', 3, 5 ] ]);
-        //assertEqual('{"a":1,"b":2} + {"a":2,"c":3}', {"a":2,"b":2,"c":3});
-    });
-
-    it("builtin casting", function () {
-        assertEqual("str('foo')", [ 'f:str', 'foo' ] );
-        assertEqual("str(1)", [ 'f:str', 1 ]);
-        //JS doesn't have a '1.0' notation
-        assertEqual("str(1.0)", [ 'f:str', 1 ]);
-        assertEqual("str(1 is 1)", [ 'f:str', [ 'is', 1, 1 ] ]);
-        assertEqual("int(1)", [ 'f:int', 1 ]);
-        //JS doesn't have a '1.0' notation
-        assertEqual("int(1.0)", [ 'f:int', 1 ]);
-        assertEqual("int('1')", [ 'f:int', '1' ]);
-
-        assertEqual("int('1.0')", [ 'f:int', '1.0' ]);
-        assertEqual("float(1.0)", [ 'f:float', 1 ]);
-        assertEqual("float(1)", [ 'f:float', 1 ]);
-        assertEqual("float('1')", [ 'f:float', '1' ]);
-        assertEqual("float('1.0')", [ 'f:float', '1.0' ]);
-        assertEqual("array()", [ 'f:array' ]);
-        assertEqual("array([])", [ 'f:array', [ '[' ] ]);
-        assertEqual("array('abc')", [ 'f:array', 'abc' ]);
-        assertEqual("array(dateTime([2011,4,8,12,0]))", [ 'f:array', [ 'f:dateTime', [ '[', 2011, 4, 8, 12, 0 ] ] ]);
-        assertEqual("array(date([2011,4,8]))", [ 'f:array', [ 'f:date', [ '[', 2011, 4, 8 ] ] ]);
-        assertEqual("array(time([12,12,30]))", [ 'f:array', [ 'f:time', [ '[', 12, 12, 30 ] ] ]);
-    });
-
-    it("join array", function () {
-        expect(transform(op.compile("join([1,2,3],'a')"))).toEqual([ 'f:join', [ '[', 1, 2, 3 ], 'a' ]);
-    });
-
-    it("join path selection", function () {
-        expect(transform(op.compile("join($.aaa,'a')"))).toEqual([ 'f:join', [ '.', '$', ':aaa' ], 'a' ]);
-    });
-
-    it("simple name", function () {
-        expect(transform(op.compile("Name"))).toEqual(':Name');
-    });
-
-    it("root object", function () {
-        expect(transform(op.compile("$"))).toEqual('$');
-    });
-
-    it("spread operator on root object", function () {
-        expect(transform(op.compile("$.*.Name"))).toEqual([ '.', [ '.', '$', '*' ], ':Name']);
-    });
-
-    it("child wildcard operator on root object", function () {
-        expect(transform(op.compile("$.*"))).toEqual([ '.', '$', '*' ]);
-    });
-
-    it("child operator on root object with a.b.c", function () {
-        expect(transform(op.compile("$.a.b.c"))).toEqual([ '.', [ '.', [ '.', '$', ':a' ], ':b' ], ':c' ]);
-    });
-
-    it("child operator and array operator", function () {
-        expect(transform(op.compile("$.a.b.c[0]"))).toEqual([ '[', [ '.', [ '.', [ '.', '$', ':a' ], ':b' ], ':c' ], 0 ]);
-    });
-
-    it("child operator with wildcard and array operator", function () {
-        expect(transform(op.compile("$.*[test].o._id"))).toEqual([ '.', [ '.', [ '[', [ '.', '$', '*' ], ':test' ], ':o' ], ':_id' ]);
-    });
-
-    it("child operator with wildcard and array operator with string", function () {
-        expect(transform(op.compile("$.*['test'].o._id"))).toEqual([ '.', [ '.', [ '[', [ '.', '$', '*' ] , 'test' ] , ':o' ] , ':_id' ]);
-    });
-
-    it("child operator on function result", function () {
-        expect(transform(op.compile("now().year"))).toEqual([ '.', [ 'f:now' ], ':year' ]);
-    });
-
-    it("recursive descent on root object and child", function () {
-        expect(transform(op.compile("$.._id"))).toEqual([ '..',  '$', ':_id' ]);
-    });
-
-    it("recursive descent on root object and child and array operator", function () {
-        expect(transform(op.compile("$..l[0]"))).toEqual([ '[', [ '..', '$', ':l' ], 0 ]);
-    });
-
-    it("recursive descent on root object on child object", function () {
-        expect(transform(op.compile("$..l.._id"))).toEqual([ '..', [ '..', '$', ':l' ], ':_id' ]);
-    });
-
-    it("selector only", function () {
-        expect(transform(op.compile("[4 in @.k._id]"))).toEqual([ '[', [ 'in', 4, [ '.', [ '.', '@', ':k' ], ':_id' ] ] ]);
-    });
-
-    it("recursive descent on store object with wildcard and selector", function () {
-        expect(transform(op.compile("$.store..*[4 in @.k._id]"))).toEqual([ '[', [ '..', ['.', '$', ':store' ], '*' ], [ 'in', 4, [ '.', [ '.', '@', ':k' ], ':_id' ] ] ]);
-    });
-
-    it("recursive descent on store object with wildcard and selector 2", function () {
-        expect(transform(op.compile("$..*[@._id>2]"))).toEqual([ '[', [ '..', '$', '*' ], [ '>', [ '.', '@', ':_id' ], 2 ] ]);
-    });
-
-    it("recursive descent on store object with wildcard and selector 3", function () {
-        expect(transform(op.compile("$..*[3 in @.l._id]"))).toEqual([ '[', [ '..', '$', '*' ], [ 'in', 3, [ '.', [ '.', '@', ':l' ], ':_id' ] ] ]);
-    });
-
-    it("recursive descent on store object with wildcard and complex selector and array operator", function () {
-        expect(transform(op.compile("$..*[@._id>1 and @._id<3][0]"))).toEqual([ '[', [ '[', [ '..', '$', '*' ], [ 'and', [ '>', [ '.', '@', ':_id' ], 1 ], [ '<', [ '.', '@', ':_id' ], 3 ] ] ], 0 ]);
-    });
-
-    it("child operator on root object and multi value selector", function () {
-        expect(transform(op.compile("$.a.b.[c,d]"))).toEqual([ '.', [ '.', [ '.', '$', ':a' ], ':b' ], [ '[', ':c', ':d' ]]);
-    });
-
-    it("flatten one level", function () {
-        expect(transform(op.compile("$.a.b[*]"))).toEqual([ '[', [ '.', [ '.', '$', ':a' ], ':b' ], '*' ]);
     });
 
 });
-
