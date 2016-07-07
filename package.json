@@ -12,7 +12,7 @@
     "url": "git://github.com/adriank/ObjectPath.git"
   },
   "bugs":"http://github.com/adriank/ObjectPath/issues",
-  "files": "objectpath.js"
+  "files": "objectpath.js",
   "keywords": [
     "JSON",
     "path",
