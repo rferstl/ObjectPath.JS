@@ -2,7 +2,7 @@
   "name": "objectpath",
   "description": "The agile query language for nested data structures like JSON",
   "version": "0.1.0",
-  "main":"objectpath",
+  "main":"src/interpreter.js",
   "author": {
     "name": "Adrian Kalbarczyk"
   },
@@ -12,7 +12,6 @@
     "url": "git://github.com/adriank/ObjectPath.git"
   },
   "bugs":"http://github.com/adriank/ObjectPath/issues",
-  "files": "objectpath.js"
   "keywords": [
     "JSON",
     "path",

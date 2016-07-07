@@ -1,4 +1,7 @@
-var ObjectPath=function(data,cfg){
+import 'tokens'
+import 'parse'
+
+export var ObjectPath=function(data,cfg){
 	this.exprCache=[]
 	this._init_(data,cfg)
 	return this
