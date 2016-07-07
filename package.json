@@ -2,7 +2,7 @@
   "name": "objectpath",
   "description": "The agile query language for nested data structures like JSON",
   "version": "0.1.0",
-  "main":"build/op.min.js",
+  "main":"src/interpreter.js",
   "author": {
     "name": "Adrian Kalbarczyk"
   },
